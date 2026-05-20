@@ -1,45 +1,56 @@
-"""
-한국농수산식품유통공사 - 지역별 품목별 도,소매 가격정보
-EP: https://apis.data.go.kr/B552845/perRegion
-전국 시군구별 가격 비교 → 최적 구매처 핵심
-"""
-import requests
-import pandas as pd
-import time
-import sys
-import os
+import requests, pandas as pd, time, sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config import AT_KEY, EP_REGIONAL, ITEMS, START_DATE, END_DATE
+from config import AT_KEY, START_DATE, END_DATE
+
+URL = "https://apis.data.go.kr/B552845/perRegion/price"
+
+ITEMS_FIXED = [
+    {"category_code": "200", "item_code": "211", "name": "배추"},
+    {"category_code": "200", "item_code": "231", "name": "무"},
+    {"category_code": "200", "item_code": "245", "name": "양파"},
+    {"category_code": "200", "item_code": "246", "name": "대파"},
+    {"category_code": "100", "item_code": "152", "name": "감자"},
+    {"category_code": "100", "item_code": "151", "name": "고구마"},
+    {"category_code": "200", "item_code": "244", "name": "마늘"},
+    {"category_code": "200", "item_code": "232", "name": "당근"},
+    {"category_code": "200", "item_code": "223", "name": "오이"},
+    {"category_code": "200", "item_code": "225", "name": "토마토"},
+]
+
+SGG_CODES = ["1101", "2100", "2200", "2401", "2501"]
 
 def fetch(start=START_DATE, end=END_DATE):
     rows = []
-    for item in ITEMS:
-        print(f"  [지역별] {item['name']} 조회중...")
-        params = {
-            "serviceKey": AT_KEY,
-            "pageNo": "1",
-            "numOfRows": "1000",
-            "returnType": "json",
-            "startDay": start,
-            "endDay": end,
-            "itemCategoryCode": item["category_code"],
-            "itemCode": item["item_code"],
-        }
-        try:
-            r = requests.get(EP_REGIONAL + "/selectRegionPriceList", params=params, timeout=15)
-            r.raise_for_status()
-            data = r.json()
-            items_data = data.get("data", {}).get("item", [])
-            for d in items_data:
-                d["품목명"] = item["name"]
-            rows.extend(items_data)
-            time.sleep(0.3)
-        except Exception as e:
-            print(f"    ❌ {item['name']} 오류: {e}")
+    for item in ITEMS_FIXED:
+        for sgg in SGG_CODES:
+            print(f"  [지역별] {item['name']} ({sgg}) 조회중...")
+            params = {
+                "serviceKey": AT_KEY,
+                "returnType": "json",
+                "pageNo": "1",
+                "numOfRows": "1000",
+                "cond[exmn_ymd::GTE]": start,
+                "cond[exmn_ymd::LTE]": end,
+                "cond[ctgry_cd::EQ]": item["category_code"],
+                "cond[item_cd::EQ]": item["item_code"],
+                "cond[sgg_cd::EQ]": sgg,
+            }
+            try:
+                r = requests.get(URL, params=params, timeout=15)
+                r.raise_for_status()
+                data = r.json()
+                items_data = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+                if isinstance(items_data, dict):
+                    items_data = [items_data]
+                for d in items_data:
+                    d["품목명"] = item["name"]
+                rows.extend(items_data)
+                time.sleep(0.3)
+            except Exception as e:
+                print(f"    ❌ {item['name']}({sgg}) 오류: {e}")
     df = pd.DataFrame(rows)
     print(f"  ✅ 지역별 총 {len(df)}건")
     return df
 
 if __name__ == "__main__":
-    df = fetch()
-    print(df.head())
+    print(fetch().head())

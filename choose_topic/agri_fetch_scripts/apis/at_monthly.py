@@ -1,34 +1,43 @@
-"""
-한국농수산식품유통공사 - 연월별 도,소매가격정보
-EP: https://apis.data.go.kr/B552845/perYearMonth
-"""
-import requests
-import pandas as pd
-import time
-import sys
-import os
+import requests, pandas as pd, time, sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config import AT_KEY, EP_MONTHLY, ITEMS, START_YM, END_YM
+from config import AT_KEY, START_YM, END_YM
+
+URL = "https://apis.data.go.kr/B552845/perYearMonth/price"
+
+ITEMS_FIXED = [
+    {"category_code": "200", "item_code": "211", "name": "배추"},
+    {"category_code": "200", "item_code": "231", "name": "무"},
+    {"category_code": "200", "item_code": "245", "name": "양파"},
+    {"category_code": "200", "item_code": "246", "name": "대파"},
+    {"category_code": "100", "item_code": "152", "name": "감자"},
+    {"category_code": "100", "item_code": "151", "name": "고구마"},
+    {"category_code": "200", "item_code": "244", "name": "마늘"},
+    {"category_code": "200", "item_code": "232", "name": "당근"},
+    {"category_code": "200", "item_code": "223", "name": "오이"},
+    {"category_code": "200", "item_code": "225", "name": "토마토"},
+]
 
 def fetch(start=START_YM, end=END_YM):
     rows = []
-    for item in ITEMS:
+    for item in ITEMS_FIXED:
         print(f"  [연월별] {item['name']} 조회중...")
         params = {
             "serviceKey": AT_KEY,
+            "returnType": "json",
             "pageNo": "1",
             "numOfRows": "500",
-            "returnType": "json",
-            "startYearMonth": start,
-            "endYearMonth": end,
-            "itemCategoryCode": item["category_code"],
-            "itemCode": item["item_code"],
+            "cond[exmn_ym::GTE]": start,
+            "cond[exmn_ym::LTE]": end,
+            "cond[ctgry_cd::EQ]": item["category_code"],
+            "cond[item_cd::EQ]": item["item_code"],
         }
         try:
-            r = requests.get(EP_MONTHLY + "/selectMonthPriceList", params=params, timeout=15)
+            r = requests.get(URL, params=params, timeout=15)
             r.raise_for_status()
             data = r.json()
-            items_data = data.get("data", {}).get("item", [])
+            items_data = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+            if isinstance(items_data, dict):
+                items_data = [items_data]
             for d in items_data:
                 d["품목명"] = item["name"]
             rows.extend(items_data)
@@ -40,5 +49,4 @@ def fetch(start=START_YM, end=END_YM):
     return df
 
 if __name__ == "__main__":
-    df = fetch()
-    print(df.head())
+    print(fetch().head())

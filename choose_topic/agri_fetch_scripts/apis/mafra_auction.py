@@ -1,59 +1,88 @@
-"""
-농림축산식품부 - 전국 공영도매시장 경매원천정보
-EP: https://at.agromarket.kr/openApi/price/auctionList.do
-품목·등급·거래량·경락가격 원천 데이터
-"""
-import requests
-import pandas as pd
-import time
-import sys
-import os
+import requests, pandas as pd, time, sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config import MAFRA_KEY, START_DATE, END_DATE
+from config import AT_KEY, START_DATE, END_DATE
+from datetime import datetime, timedelta
 
-# mafra 품목코드 (aT 코드와 다름)
-MAFRA_ITEMS = [
-    {"item_code": "1001", "name": "배추"},
-    {"item_code": "1002", "name": "무"},
-    {"item_code": "1004", "name": "양파"},
-    {"item_code": "1003", "name": "대파"},
-    {"item_code": "2001", "name": "감자"},
-    {"item_code": "2002", "name": "고구마"},
-    {"item_code": "1005", "name": "마늘"},
-    {"item_code": "1008", "name": "당근"},
-    {"item_code": "1010", "name": "오이"},
-    {"item_code": "3001", "name": "토마토"},
+URL_ORIGIN   = "https://apis.data.go.kr/B552845/katOrigin/trades"
+URL_REALTIME = "https://apis.data.go.kr/B552845/katRealTime2/trades2"
+
+WHSL_CODES = [
+    "110001",
+    "110008",
+    "210001",
+    "210009",
+    "220001",
+    "230001",
+    "240001",
+    "250001",
 ]
 
-BASE_URL = "https://at.agromarket.kr/openApi/price/auctionList.do"
+def _date_range(start, end):
+    s = datetime.strptime(start, "%Y%m%d")
+    e = datetime.strptime(end, "%Y%m%d")
+    s = max(s, e - timedelta(days=30))
+    dates = []
+    cur = s
+    while cur <= e:
+        dates.append(cur.strftime("%Y-%m-%d"))
+        cur += timedelta(days=1)
+    return dates
+
+def _fetch_by_date(url, date, whsl_cd):
+    # cond[] 파라미터 인코딩 문제 → URL 직접 조립
+    full_url = (
+        f"{url}"
+        f"?serviceKey={AT_KEY}"
+        f"&returnType=json"
+        f"&pageNo=1"
+        f"&numOfRows=1000"
+        f"&cond[whsl_mrkt_cd::EQ]={whsl_cd}"
+        f"&cond[trd_clcln_ymd::EQ]={date}"
+    )
+    try:
+        r = requests.get(full_url, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        items = data.get("response", {}).get("body", {}).get("items", {})
+        if not items:
+            return []
+        items = items.get("item", [])
+        if isinstance(items, dict):
+            items = [items]
+        return items if isinstance(items, list) else []
+    except Exception as e:
+        print(f"    ❌ {whsl_cd} {date} 오류: {e}")
+        return []
 
 def fetch(start=START_DATE, end=END_DATE):
     rows = []
-    for item in MAFRA_ITEMS:
-        print(f"  [경매원천] {item['name']} 조회중...")
-        params = {
-            "apiKey": MAFRA_KEY,
-            "pageNo": "1",
-            "pageSize": "1000",
-            "saleDate": start[:6],  # YYYYMM
-            "itemCode": item["item_code"],
-        }
-        try:
-            r = requests.get(BASE_URL, params=params, timeout=15)
-            r.raise_for_status()
-            data = r.json()
-            items_data = data.get("data", [])
-            if isinstance(items_data, list):
-                for d in items_data:
-                    d["품목명"] = item["name"]
-                rows.extend(items_data)
-            time.sleep(0.3)
-        except Exception as e:
-            print(f"    ❌ {item['name']} 오류: {e}")
+    dates = _date_range(start, end)
+    for whsl in WHSL_CODES:
+        print(f"  [경매원천] 도매시장:{whsl} ({len(dates)}일치) 조회중...")
+        for date in dates:
+            result = _fetch_by_date(URL_ORIGIN, date, whsl)
+            for d in result:
+                d["도매시장코드"] = whsl
+            rows.extend(result)
+            time.sleep(0.2)
     df = pd.DataFrame(rows)
     print(f"  ✅ 경매원천 총 {len(df)}건")
     return df
 
+def fetch_realtime(start=START_DATE, end=END_DATE):
+    rows = []
+    dates = _date_range(start, end)
+    for whsl in WHSL_CODES:
+        print(f"  [실시간경매] 도매시장:{whsl} ({len(dates)}일치) 조회중...")
+        for date in dates:
+            result = _fetch_by_date(URL_REALTIME, date, whsl)
+            for d in result:
+                d["도매시장코드"] = whsl
+            rows.extend(result)
+            time.sleep(0.2)
+    df = pd.DataFrame(rows)
+    print(f"  ✅ 실시간경매 총 {len(df)}건")
+    return df
+
 if __name__ == "__main__":
-    df = fetch()
-    print(df.head())
+    print(fetch().head())

@@ -2,5 +2,6 @@ requests
 pandas
 numpy
 scikit-learn
-sentence-transformers  # 없으면 TF-IDF로 자동 대체됨
+sentence-transformers
 python-dotenv
+ 
